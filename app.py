@@ -11,19 +11,22 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-APP_VERSION = "V1.5"
+APP_VERSION = "V1.6"
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "regatas_tesoreria.db"
 LOGO_PATH = BASE_DIR / "logo_regatas_oficial.png"
 
-BLUE = "#123B63"
-BLUE_2 = "#1E5A8A"
-ORANGE = "#F4B183"
-ORANGE_LIGHT = "#FCE4D6"
-GREEN = "#2E7D32"
-YELLOW = "#D6A100"
+BLUE = "#0B3154"
+BLUE_2 = "#154F7A"
+ORANGE = "#F28C28"
+ORANGE_LIGHT = "#FFF0E2"
+GREEN = "#1F8B4C"
+YELLOW = "#D79A00"
 RED = "#C62828"
-GRAY = "#6B7280"
+GRAY = "#667085"
+NAVY = "#082744"
+ICE = "#F5F8FC"
+BORDER = "#D9E2EC"
 
 st.set_page_config(page_title="Regatas · Tesorería", page_icon=str(LOGO_PATH) if LOGO_PATH.exists() else "🔷", layout="wide")
 
@@ -31,33 +34,83 @@ st.markdown(
     f"""
     <style>
     html, body, [class*="css"] {{ font-family: Calibri, Arial, sans-serif; }}
-    .block-container {{ padding-top: 1.2rem; padding-bottom: 2rem; max-width: 1480px; }}
-    .regatas-header {{
-        background: linear-gradient(90deg, {BLUE}, {BLUE_2});
-        border-radius: 14px; padding: 18px 22px; color: white;
-        margin-bottom: 14px; box-shadow: 0 4px 14px rgba(0,0,0,.08);
+    [data-testid="stAppViewContainer"] {{ background: #FFFFFF; }}
+    [data-testid="stHeader"] {{ background: transparent; }}
+    .block-container {{ padding-top: .8rem; padding-bottom: 2rem; max-width: 1540px; }}
+
+    /* Sidebar institucional */
+    [data-testid="stSidebar"] {{ background: linear-gradient(180deg, {NAVY} 0%, {BLUE} 100%); }}
+    [data-testid="stSidebar"] * {{ color: #FFFFFF; }}
+    [data-testid="stSidebar"] [role="radiogroup"] label {{
+        padding: .45rem .55rem; border-radius: 8px; margin: 1px 0; transition: .15s ease;
     }}
-    .regatas-header h1 {{ color: white; font-size: 2rem; margin:0; }}
-    .regatas-header p {{ color: white; margin:7px 0 0 0; opacity:.93; }}
+    [data-testid="stSidebar"] [role="radiogroup"] label:hover {{ background: rgba(255,255,255,.08); }}
+    [data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {{
+        background: {ORANGE}; font-weight: 700;
+    }}
+    [data-testid="stSidebar"] hr {{ border-color: rgba(255,255,255,.18); }}
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {{ color: rgba(255,255,255,.72); }}
+
+    /* Cabecera */
+    .regatas-header {{
+        background: linear-gradient(105deg, {NAVY} 0%, {BLUE_2} 100%);
+        border-radius: 12px; padding: 16px 22px 15px 22px; color: white;
+        margin-bottom: 8px; box-shadow: 0 5px 16px rgba(8,39,68,.18);
+        border-bottom: 5px solid {ORANGE};
+    }}
+    .regatas-header h1 {{ color: white; font-size: 1.9rem; line-height:1.05; margin:0; font-weight:800; }}
+    .regatas-header p {{ color: rgba(255,255,255,.9); margin:7px 0 0 0; font-size:.93rem; }}
+    .eyebrow {{ color:{ORANGE}; font-weight:800; letter-spacing:.08em; font-size:.72rem; margin-bottom:4px; }}
+
+    /* Secciones */
     .section-title {{
-        background:{BLUE}; color:white; padding:9px 14px; border-radius:9px;
-        font-weight:700; margin:12px 0 10px 0; font-size:1.05rem;
+        background:{BLUE}; color:white; padding:9px 14px; border-radius:8px;
+        font-weight:800; margin:14px 0 10px 0; font-size:1rem; letter-spacing:.025em;
+        border-left:7px solid {ORANGE};
     }}
     .subtle-note {{
-        background:{ORANGE_LIGHT}; border-left:5px solid {ORANGE}; padding:10px 13px;
-        border-radius:8px; color:#5A493E; margin:8px 0 12px 0;
+        background:{ORANGE_LIGHT}; border-left:5px solid {ORANGE}; padding:9px 13px;
+        border-radius:7px; color:#624126; margin:8px 0 12px 0; font-size:.91rem;
     }}
+
+    /* KPI principales */
+    .primary-kpi {{
+        background: linear-gradient(160deg,#FFFFFF 0%,{ICE} 100%);
+        border:1px solid {BORDER}; border-radius:12px; min-height:154px;
+        padding:17px 18px 14px 18px; box-shadow:0 4px 14px rgba(8,39,68,.08);
+        position:relative; overflow:hidden;
+    }}
+    .primary-kpi:before {{ content:''; position:absolute; left:0; top:0; right:0; height:6px; background:{BLUE}; }}
+    .primary-kpi.alert:before {{ background:{RED}; }}
+    .primary-kpi.warn:before {{ background:{ORANGE}; }}
+    .primary-kpi.good:before {{ background:{GREEN}; }}
+    .primary-kpi .name {{ color:#53677A; font-size:.86rem; font-weight:700; text-transform:uppercase; letter-spacing:.035em; }}
+    .primary-kpi .value {{ color:{NAVY}; font-size:2.05rem; line-height:1.08; font-weight:800; margin-top:10px; }}
+    .primary-kpi .detail {{ color:#718096; font-size:.81rem; margin-top:8px; }}
+
+    /* KPI secundarios */
     .kpi-card {{
-        background:white; border:1px solid #DDE4EC; border-top:4px solid {BLUE};
-        border-radius:12px; padding:12px 14px; min-height:116px;
-        box-shadow:0 3px 12px rgba(15,23,42,.05);
+        background:white; border:1px solid {BORDER}; border-left:4px solid {BLUE};
+        border-radius:10px; padding:11px 13px; min-height:108px;
+        box-shadow:0 2px 9px rgba(15,23,42,.045);
     }}
-    .kpi-card .name {{ font-size:.86rem; color:#506174; margin-bottom:4px; }}
-    .kpi-card .value {{ font-size:1.45rem; font-weight:700; color:#14324A; }}
-    .kpi-card .detail {{ font-size:.78rem; color:#6B7280; margin-top:5px; }}
-    .status-green {{ color:{GREEN}; font-weight:700; }}
-    .status-yellow {{ color:{YELLOW}; font-weight:700; }}
-    .status-red {{ color:{RED}; font-weight:700; }}
+    .kpi-card .name {{ font-size:.79rem; color:#5C6E7F; margin-bottom:5px; font-weight:700; }}
+    .kpi-card .value {{ font-size:1.32rem; font-weight:800; color:{NAVY}; }}
+    .kpi-card .detail {{ font-size:.74rem; color:#7A8794; margin-top:5px; }}
+
+    /* Bloque dólares */
+    .usd-strip {{ background:{NAVY}; border-radius:11px; padding:14px 16px; color:white; min-height:112px; border-bottom:4px solid {ORANGE}; }}
+    .usd-strip .name {{ font-size:.76rem; color:rgba(255,255,255,.72); text-transform:uppercase; font-weight:700; }}
+    .usd-strip .value {{ font-size:1.48rem; font-weight:800; color:white; margin-top:5px; }}
+    .usd-strip .detail {{ font-size:.72rem; color:rgba(255,255,255,.66); margin-top:5px; }}
+
+    .status-green {{ color:{GREEN}; font-weight:800; }}
+    .status-yellow {{ color:{YELLOW}; font-weight:800; }}
+    .status-red {{ color:{RED}; font-weight:800; }}
+
+    /* Compactar widgets nativos */
+    div[data-testid="stDataFrame"] {{ border:1px solid {BORDER}; border-radius:8px; overflow:hidden; }}
+    .stButton>button, .stDownloadButton>button {{ border-radius:8px; font-weight:700; }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -361,7 +414,7 @@ def seed_if_empty():
 
 init_db()
 
-# Migración V1.5: unifica nombres históricos de Fútbol Inferiores.
+# Migración heredada: unifica nombres históricos de Fútbol Inferiores.
 execute("UPDATE sports SET deporte='Fútbol Inferiores' WHERE deporte IN ('Fútbol Inferiores 121','Fut Inferiores','Fut Inferiores 121')")
 execute("UPDATE capitania_identificada SET deporte_normalizado='Fútbol Inferiores' WHERE deporte_normalizado IN ('Fútbol Inferiores 121','Fut Inferiores','Fut Inferiores 121')")
 execute("DELETE FROM sports_master WHERE deporte IN ('Fútbol Inferiores 121','Fut Inferiores','Fut Inferiores 121')")
@@ -477,9 +530,19 @@ def section(text):
     st.markdown(f'<div class="section-title">{text}</div>', unsafe_allow_html=True)
 
 def card(name,value,detail="",status_text=None,status_class="status-yellow"):
-    status = f'<div class="{status_class}" style="margin-top:6px;font-size:.82rem">{status_text}</div>' if status_text else ""
+    status = f'<div class="{status_class}" style="margin-top:6px;font-size:.78rem">{status_text}</div>' if status_text else ""
     st.markdown(f"""<div class="kpi-card"><div class="name">{name}</div><div class="value">{value}</div>
     <div class="detail">{detail}</div>{status}</div>""", unsafe_allow_html=True)
+
+def primary_card(name,value,detail="",status_text=None,status_class="status-yellow"):
+    tone = "good" if status_class=="status-green" else "alert" if status_class=="status-red" else "warn"
+    status = f'<div class="{status_class}" style="margin-top:10px;font-size:.86rem">{status_text}</div>' if status_text else ""
+    st.markdown(f"""<div class="primary-kpi {tone}"><div class="name">{name}</div><div class="value">{value}</div>
+    <div class="detail">{detail}</div>{status}</div>""", unsafe_allow_html=True)
+
+def usd_card(name,value,detail=""):
+    st.markdown(f"""<div class="usd-strip"><div class="name">{name}</div><div class="value">{value}</div>
+    <div class="detail">{detail}</div></div>""", unsafe_allow_html=True)
 
 def latest_week():
     d=fetch_df("SELECT * FROM weekly_finance ORDER BY fecha DESC LIMIT 1")
@@ -530,22 +593,27 @@ def norm_cols(df):
     return df
 
 # ---------------- header ----------------
-logo_col, title_col = st.columns([1, 7])
+logo_col, title_col = st.columns([0.85, 7.15], vertical_alignment="center")
 with logo_col:
     if LOGO_PATH.exists():
-        st.image(str(LOGO_PATH), width=125)
+        st.image(str(LOGO_PATH), width=105)
     else:
         st.markdown("### CRSN")
 with title_col:
-    st.markdown(f"""<div class="regatas-header"><h1>Club de Regatas San Nicolás · Tesorería</h1>
-    <p>{APP_VERSION} · Control financiero · Capitanía por mes y ejercicio · Deportes Agosto 2026 · Pesos · Dólares · KPI</p></div>""",unsafe_allow_html=True)
+    st.markdown(f"""<div class="regatas-header">
+    <div class="eyebrow">CLUB DE REGATAS SAN NICOLÁS · GESTIÓN FINANCIERA</div>
+    <h1>Tesorería · Tablero de Control</h1>
+    <p>{APP_VERSION} · Liquidez · Obligaciones · Socios · Capitanía · Deportes · Pesos y Dólares</p>
+    </div>""",unsafe_allow_html=True)
 
+st.sidebar.markdown("### TESORERÍA")
+st.sidebar.caption(f"Club de Regatas San Nicolás · {APP_VERSION}")
 menu=st.sidebar.radio("Módulo",[
     "Tablero semanal","Carga manual","Importar archivos","Socios y morosidad","Pesos y dólares",
     "Capitanía","Deportes","Movimientos / desvíos","Base de datos y exportación"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("Base inicial construida con la información histórica suministrada hasta septiembre de 2026.")
+st.sidebar.caption("Base financiera integrada con información histórica suministrada hasta septiembre de 2026.")
 
 # ---------------- dashboard ----------------
 if menu=="Tablero semanal":
@@ -553,29 +621,42 @@ if menu=="Tablero semanal":
     section("TABLERO SEMANAL · SITUACIÓN ACTUAL")
     st.markdown(f'<div class="subtle-note">Corte actual: <b>{k["fecha"]}</b>. Comparar siempre con semana anterior y explicar las cinco mayores variaciones.</div>',unsafe_allow_html=True)
 
-    c=st.columns(6)
-    items=[
-        ("Disponibilidad $",ars(k["disp"]),"Tenencias – Obligaciones",*semaforo("disp",k["disp"])),
-        ("Cobertura",ratio(k["cov"]),"Tenencias / Obligaciones",*semaforo("cov",k["cov"])),
-        ("Caja ampliada ajustada",ars(k["pos"]),"Excluye venta extraordinaria",*semaforo("pos",k["pos"])),
+    # Tres KPI que definen la situación financiera inmediata.
+    c1,c2,c3=st.columns(3)
+    main_items=[
+        ("Disponibilidad operativa",ars(k["disp"]),"Tenencias en pesos menos obligaciones",*semaforo("disp",k["disp"])),
+        ("Cobertura de obligaciones",ratio(k["cov"]),"Tenencias / obligaciones · objetivo ≥ 1,20x",*semaforo("cov",k["cov"])),
+        ("Caja ampliada ajustada",ars(k["pos"]),"Disponibilidad + USD libres convertidos · excluye venta inmueble",*semaforo("pos",k["pos"])),
+    ]
+    for col,it in zip([c1,c2,c3],main_items):
+        with col: primary_card(it[0],it[1],it[2],it[3],it[4])
+
+    # Indicadores de gestión complementarios.
+    c=st.columns(4)
+    secondary=[
         ("Morosidad",pct(k["mora"],2),"Último dato disponible",*semaforo("mora",k["mora"])),
         ("Socios pagadores",f'{k["socios"]:,}'.replace(",","."),"Último mes cargado",None,"status-yellow"),
-        ("Ingreso Gr./pagador",ars(k["ticket"]),"Ingreso general / pagadores",None,"status-yellow"),
-    ]
-    for col,it in zip(c,items):
-        with col: card(it[0],it[1],it[2],it[3],it[4])
-
-    c=st.columns(6)
-    items=[
-        ("USD brutos",usd_fmt(k["ubr"]),"Stock nominal",None,"status-yellow"),
-        ("USD afectados",usd_fmt(k["uaf"]),"Fondos afectados",None,"status-yellow"),
-        ("Venta inmueble",usd_fmt(k["uvi"]),"Reserva patrimonial",None,"status-yellow"),
-        ("USD libres ajustados",usd_fmt(k["ufree"]),"Brutos – afectados – venta",None,"status-yellow"),
-        ("Costo laboral / ingresos",pct(k["lab_ratio"],1),"Sueldos + F.931 / ingresos",None,"status-yellow"),
+        ("Ingreso Gr. / pagador",ars(k["ticket"]),"Ingreso general / socios pagadores",None,"status-yellow"),
         ("Cobrabilidad",pct(k["cob"],1),"Cobrado / facturado",*semaforo("cob",k["cob"])),
     ]
-    for col,it in zip(c,items):
+    for col,it in zip(c,secondary):
         with col: card(it[0],it[1],it[2],it[3],it[4])
+
+    section("POSICIÓN EN DÓLARES")
+    c=st.columns(4)
+    usd_items=[
+        ("USD brutos",usd_fmt(k["ubr"]),"Stock nominal total"),
+        ("USD afectados",usd_fmt(k["uaf"]),"Fondos con destino asignado"),
+        ("Venta inmueble",usd_fmt(k["uvi"]),"Reserva patrimonial separada"),
+        ("USD libres ajustados",usd_fmt(k["ufree"]),"Brutos – afectados – venta inmueble"),
+    ]
+    for col,it in zip(c,usd_items):
+        with col: usd_card(*it)
+
+    if pd.notna(k["lab_ratio"]):
+        st.caption(f'Costo laboral / ingresos: {pct(k["lab_ratio"],1)} · Sueldos + F.931 sobre ingresos totales del último período disponible.')
+    else:
+        st.caption('Costo laboral / ingresos: N/D · falta información completa de sueldos/F.931 para el último período.')
 
     section("EVOLUCIÓN DE LIQUIDEZ")
     wf=fetch_df("SELECT * FROM weekly_finance ORDER BY fecha")
@@ -586,11 +667,14 @@ if menu=="Tablero semanal":
     f=go.Figure()
     for name,col in [("Tenencias $","tenencias_pesos"),("Obligaciones $","obligaciones_pesos"),("Disponibilidad $","disponibilidad")]:
         f.add_trace(go.Scatter(x=wf["fecha"],y=wf[col]/1e6,name=name,mode="lines+markers"))
-    f.update_layout(title="Tenencias, obligaciones y disponibilidad",yaxis_title="$ millones",height=390,legend_orientation="h")
+    f.update_layout(title="Tenencias, obligaciones y disponibilidad",yaxis_title="$ millones",height=390,legend_orientation="h",
+                    paper_bgcolor="white",plot_bgcolor="white",margin=dict(l=20,r=20,t=55,b=20),
+                    legend=dict(orientation="h",yanchor="bottom",y=1.02,xanchor="left",x=0))
     a.plotly_chart(f,use_container_width=True)
     f2=px.line(wf,x="fecha",y="cobertura",markers=True,title="Cobertura de obligaciones")
     f2.add_hline(y=1.0,line_dash="dash"); f2.add_hline(y=1.2,line_dash="dot")
-    f2.update_layout(yaxis_title="x",height=390)
+    f2.update_layout(yaxis_title="x",height=390,paper_bgcolor="white",plot_bgcolor="white",
+                     margin=dict(l=20,r=20,t=55,b=20))
     b.plotly_chart(f2,use_container_width=True)
 
     section("CUOTA, SOCIOS Y MOROSIDAD")
@@ -601,12 +685,14 @@ if menu=="Tablero semanal":
     f=go.Figure()
     f.add_trace(go.Bar(x=mm["mes_dt"],y=mm["ingresos_gr"]/1e6,name="Ingresos Gr."))
     f.add_trace(go.Scatter(x=mm["mes_dt"],y=mm["ingresos_totales"]/1e6,name="Ingresos totales",mode="lines+markers"))
-    f.update_layout(title="Ingresos mensuales",yaxis_title="$ millones",height=380,legend_orientation="h")
+    f.update_layout(title="Ingresos mensuales",yaxis_title="$ millones",height=380,legend_orientation="h",
+                    paper_bgcolor="white",plot_bgcolor="white",margin=dict(l=20,r=20,t=55,b=20))
     a.plotly_chart(f,use_container_width=True)
     f2=go.Figure()
     f2.add_trace(go.Scatter(x=mm["mes_dt"],y=mm["morosidad_pct"],name="Morosidad %",mode="lines+markers"))
     f2.add_trace(go.Scatter(x=mm["mes_dt"],y=mm["ticket"]/1000,name="Ingreso/pagador ($ mil)",mode="lines+markers"))
-    f2.update_layout(title="Morosidad e ingreso por socio",height=380,legend_orientation="h")
+    f2.update_layout(title="Morosidad e ingreso por socio",height=380,legend_orientation="h",
+                     paper_bgcolor="white",plot_bgcolor="white",margin=dict(l=20,r=20,t=55,b=20))
     b.plotly_chart(f2,use_container_width=True)
 
     section("SEMÁFORO DEPORTIVO")
