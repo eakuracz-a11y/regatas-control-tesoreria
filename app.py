@@ -11,10 +11,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-APP_VERSION = "V1.2"
+APP_VERSION = "V1.3"
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "regatas_tesoreria.db"
-CLUB_LOGO_URL = "https://seeklogo.com/images/R/regatas-de-san-nicolas-buenos-aires-logo-E3F6039062-seeklogo.com.png"
+LOGO_PATH = BASE_DIR / "logo_regatas_oficial.png"
 
 BLUE = "#123B63"
 BLUE_2 = "#1E5A8A"
@@ -25,7 +25,7 @@ YELLOW = "#D6A100"
 RED = "#C62828"
 GRAY = "#6B7280"
 
-st.set_page_config(page_title="Regatas · Tesorería", page_icon=CLUB_LOGO_URL, layout="wide")
+st.set_page_config(page_title="Regatas · Tesorería", page_icon=str(LOGO_PATH) if LOGO_PATH.exists() else "🔷", layout="wide")
 
 st.markdown(
     f"""
@@ -146,6 +146,28 @@ def init_db():
             UNIQUE(fecha, proveedor, concepto, monto)
         );
 
+        CREATE TABLE IF NOT EXISTS capitania_identificada (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha TEXT NOT NULL,
+            proveedor TEXT DEFAULT '',
+            concepto TEXT DEFAULT '',
+            categoria TEXT DEFAULT '',
+            beneficiario_original TEXT DEFAULT '',
+            deporte_normalizado TEXT DEFAULT '',
+            estado_match TEXT DEFAULT 'Revisar',
+            monto REAL DEFAULT 0,
+            observaciones TEXT DEFAULT '',
+            UNIQUE(fecha, proveedor, concepto, monto)
+        );
+
+        CREATE TABLE IF NOT EXISTS sports_master (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            deporte TEXT UNIQUE NOT NULL,
+            activo INTEGER DEFAULT 1,
+            origen TEXT DEFAULT 'Histórico',
+            observaciones TEXT DEFAULT ''
+        );
+
         CREATE TABLE IF NOT EXISTS accounts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             fecha TEXT NOT NULL,
@@ -261,6 +283,60 @@ def seed_if_empty():
                 VALUES (?,?,?,?,?,?,?,?)""", monthly + beneficiarios)
 
 
+    # Maestro de deportes: unión de cuentas históricas conocidas.
+    if fetch_df("SELECT COUNT(*) n FROM sports_master").iloc[0]["n"] == 0:
+        deportes = [
+            "Básquet Femenino","Básquet Formativo","Caleta","Campamento Isla",
+            "Fútbol Femenino","Fútbol Infantil","Fútbol Inferiores 121","Futsal",
+            "Gimnasia Artística","Handball","Hockey","Karate","Natación","Pádel",
+            "Remo","Rugby","Tenis","Vóley","Yachting"
+        ]
+        with conn() as c:
+            c.executemany("INSERT OR IGNORE INTO sports_master(deporte,origen) VALUES(?,'Informe contable / cuentas')",
+                          [(d,) for d in deportes])
+
+    # Movimientos de Capitanía con identificación deportiva clara encontrados en el informe contable.
+    if fetch_df("SELECT COUNT(*) n FROM capitania_identificada").iloc[0]["n"] == 0:
+        movs = [
+            ("2026-01-08","ORIHUELA JORGE EDGARDO","compra de cuatriciclo tenis","Equipamiento","Tenis","Tenis","Coincide",9270000,""),
+            ("2026-05-28","WAINMANN ARIEL HERNAN","compra de pisos de goma p/ gimnasio y sala de remo","Equipamiento","Gimnasio / pesas / Remo","Gimnasio / pesas / Remo","Ambiguo",9014382,"Revisar distribución entre gimnasio y Remo"),
+            ("2025-10-09","MASCARDI PLASTICOS SAU","compra de sillas para pileta - capitanía","Equipamiento","Natación / pileta","Natación","Coincide",7811400,""),
+            ("2026-02-20","JOSSO ROMINA VANESA","compra fenólicos p/ cancha básquet","Equipamiento","Básquet","Básquet (sin subcuenta)","Ambiguo",5407840,"Definir Formativo/Femenino"),
+            ("2026-01-08","COSITFER DE LOS ARROYOS S.A.","compra de sombrillas playa y pileta","Equipamiento","Natación / pileta","Natación","Coincide",4450140,""),
+            ("2026-06-18","SOSA GUERCI MIRKO","trabajos iluminación cancha de hockey","Electricidad / iluminación","Hockey","Hockey","Coincide",3952744,""),
+            ("2025-11-10","PULSERAS ROSARIO","pulseras p/ pileta","Otros","Natación / pileta","Natación","Coincide",3872000,""),
+            ("2026-05-06","GAMELAN FITNESS","compra elementos de gym. paga la reserva de gym","Equipamiento","Gimnasio / pesas","Gimnasio / pesas","Sin cuenta",3497732,""),
+            ("2026-06-05","SOSA GUERCI MIRKO","mantenimiento iluminación en cancha hockey","Electricidad / iluminación","Hockey","Hockey","Coincide",3436400,""),
+            ("2025-09-05","OTROS MATERIAL FLOTANTE","cancelación bote - Capitanía","Equipamiento","Yachting / náutica","Yachting","Coincide",2606816,""),
+            ("2025-10-21","MASTRANGELO S.A.","obra iluminación isla. Rugby","Electricidad / iluminación","Rugby","Rugby","Coincide",2483714,""),
+            ("2026-03-03","SOSA GUERCI MIRKO","compra lámparas para cambio en isla y hockey","Electricidad / iluminación","Hockey","Hockey","Coincide",2333115,""),
+            ("2025-11-10","TAPICERIA VELAZQUEZ","cobertores de las jirafas del gim ppal","Otros","Básquet","Básquet (sin subcuenta)","Ambiguo",2150050,"Definir Formativo/Femenino"),
+            ("2025-10-24","CASA BOFFA HNAS. S.A.","pago sombrillones - pileta","Equipamiento","Natación / pileta","Natación","Coincide",2040000,""),
+            ("2026-01-13","ROBERTO PINASCO Y ROBERTO ORIH","compra de ventiladores gimnasio","Equipamiento","Gimnasio / pesas","Gimnasio / pesas","Sin cuenta",1762500,""),
+            ("2026-02-03","HERNAN PIVA","materiales p/ mantenimiento de pileta","Otros","Natación / pileta","Natación","Coincide",1570200,""),
+            ("2026-01-31","Piva","mantenimiento de pileta","Otros","Natación / pileta","Natación","Coincide",1570200,""),
+            ("2025-12-22","VILLARRAZA EDUARDO","estudio de iluminación cancha de hockey","Electricidad / iluminación","Hockey","Hockey","Coincide",1555388,""),
+            ("2026-04-01","FONDO DE RESERVA YACHTING","50% horas trabajadas grand prix - marinería","Personal","Yachting / náutica","Yachting","Coincide",1475989,""),
+            ("2026-02-04","MANERO OMAR (ALQUIMIA)","compra de cloro 2 piletas","Limpieza / químicos","Natación / pileta","Natación","Coincide",1322200,""),
+            ("2026-02-26","TAPICERIA VELAZQUEZ","retapizar jirafas de cancha de básquet","Otros","Básquet","Básquet (sin subcuenta)","Ambiguo",1307000,"Definir Formativo/Femenino"),
+            ("2026-03-06","NOBA COLOR PINTURERIAS","compra pinturas varias p/ gimnasio","Pinturas","Gimnasio / pesas","Gimnasio / pesas","Sin cuenta",1208559,""),
+            ("2025-09-10","DISI DISTRIBUIDORA SIDERURGICA","compra de hierros p/ prado y puerta p/pileta - Capitanía","Ferretería","Natación / pileta","Natación","Coincide",962173,""),
+            ("2026-01-23","PEDRAZZOLI, DEL FRADE & CIA S.","elementos para la pileta","Otros","Natación / pileta","Natación","Coincide",943899,""),
+            ("2026-03-02","HERNAN PIVA","insumos de pileta","Otros","Natación / pileta","Natación","Coincide",817800,""),
+            ("2025-12-09","MANTENIMIENTO PILETA","reparación bomba pileta","Mantenimiento","Natación / pileta","Natación","Coincide",721160,""),
+            ("2026-01-05","CASA BOFFA HNAS. S.A.","mediasombra de tenis","Equipamiento","Tenis","Tenis","Coincide",660000,""),
+            ("2026-05-26","TAPICERIA VELAZQUEZ","tapizado de jirafas de básquet","Otros","Básquet","Básquet (sin subcuenta)","Ambiguo",540500,"Definir Formativo/Femenino"),
+            ("2025-12-03","HERNAN PIVA","insumo de pileta","Otros","Natación / pileta","Natación","Coincide",529400,""),
+            ("2025-09-16","MANTENIMIENTO PILETA","compras varias realizadas x Capitanía","Otros","Natación / pileta","Natación","Coincide",432279,""),
+            ("2026-04-15","MANTENIMIENTO BUCANERO","pago hs. extras","Personal","Yachting / náutica","Yachting","Coincide",79865,""),
+            ("2026-03-09","M & S DISTRIBUIDOR","compra de fenólicos","Otros","Básquet","Básquet (sin subcuenta)","Ambiguo",140000,"Definir Formativo/Femenino"),
+        ]
+        with conn() as c:
+            c.executemany("""INSERT OR IGNORE INTO capitania_identificada
+                (fecha,proveedor,concepto,categoria,beneficiario_original,deporte_normalizado,estado_match,monto,observaciones)
+                VALUES(?,?,?,?,?,?,?,?,?)""", movs)
+
+
 init_db()
 
 # ---------------- helpers ----------------
@@ -278,6 +354,68 @@ def filtro_mes(df, fecha_col, key, label="Mes"):
     if elegido != "Todos":
         out = out[fechas.dt.strftime("%Y-%m") == elegido].copy()
     return out
+
+def normalizar_deporte(nombre):
+    """Normaliza nombres provenientes de cuentas y descripciones de Capitanía."""
+    if nombre is None or pd.isna(nombre):
+        return ""
+    s = str(nombre).strip().lower()
+    reemplazos = {
+        "natación / pileta":"Natación",
+        "natacion / pileta":"Natación",
+        "pileta":"Natación",
+        "natación":"Natación",
+        "natacion":"Natación",
+        "hockey":"Hockey",
+        "tenis":"Tenis",
+        "rugby":"Rugby",
+        "remo":"Remo",
+        "karate":"Karate",
+        "yachting / náutica":"Yachting",
+        "yachting / nautica":"Yachting",
+        "náutica":"Yachting",
+        "nautica":"Yachting",
+        "yachting":"Yachting",
+        "vóley":"Vóley",
+        "voley":"Vóley",
+        "handball":"Handball",
+        "pádel":"Pádel",
+        "padel":"Pádel",
+        "futsal":"Futsal",
+        "caleta":"Caleta",
+        "campamento isla":"Campamento Isla",
+        "fútbol femenino":"Fútbol Femenino",
+        "futbol femenino":"Fútbol Femenino",
+        "fútbol infantil":"Fútbol Infantil",
+        "futbol infantil":"Fútbol Infantil",
+        "fútbol inferiores 121":"Fútbol Inferiores 121",
+        "futbol inferiores 121":"Fútbol Inferiores 121",
+        "gimnasia artística":"Gimnasia Artística",
+        "gimnasia artistica":"Gimnasia Artística",
+        "básquet formativo":"Básquet Formativo",
+        "basquet formativo":"Básquet Formativo",
+        "básquet femenino":"Básquet Femenino",
+        "basquet femenino":"Básquet Femenino",
+    }
+    if s in reemplazos:
+        return reemplazos[s]
+    # Casos ambiguos: se conservan para revisión manual.
+    if "basquet" in s or "básquet" in s:
+        return "Básquet (sin subcuenta)"
+    if "gimnasio" in s or "pesas" in s:
+        if "remo" in s:
+            return "Gimnasio / pesas / Remo"
+        return "Gimnasio / pesas"
+    return str(nombre).strip()
+
+def estado_match_deporte(nombre_normalizado, deportes_validos):
+    if nombre_normalizado in deportes_validos:
+        return "Coincide"
+    if nombre_normalizado in ["Básquet (sin subcuenta)", "Gimnasio / pesas", "Gimnasio / pesas / Remo"]:
+        return "Ambiguo"
+    return "Sin cuenta"
+
+
 
 
 def ars(v):
@@ -359,10 +497,10 @@ def norm_cols(df):
 # ---------------- header ----------------
 logo_col, title_col = st.columns([1, 7])
 with logo_col:
-    st.image(CLUB_LOGO_URL, width=105)
+    st.image(str(LOGO_PATH), width=125) if LOGO_PATH.exists() else st.markdown("### CRSN")
 with title_col:
     st.markdown(f"""<div class="regatas-header"><h1>Club de Regatas San Nicolás · Tesorería</h1>
-    <p>{APP_VERSION} · Tablero semanal de KPI · Vista completa · Selector mensual · Pesos · Dólares · Socios · Capitanía · Deportes · Desvíos</p></div>""",unsafe_allow_html=True)
+    <p>{APP_VERSION} · Control financiero · Capitanía por ejercicio · Conciliación cuentas deportivas · Selector mensual · Pesos · Dólares</p></div>""",unsafe_allow_html=True)
 
 menu=st.sidebar.radio("Módulo",[
     "Tablero semanal","Carga manual","Importar archivos","Socios y morosidad","Pesos y dólares",
@@ -513,7 +651,7 @@ elif menu=="Carga manual":
 
 elif menu=="Importar archivos":
     section("IMPORTAR CSV / XLSX")
-    tipo=st.selectbox("Tipo",["Cierres semanales","Socios e ingresos mensuales","Capitanía","Deportes","Cuentas bancarias / moneda"])
+    tipo=st.selectbox("Tipo",["Cierres semanales","Socios e ingresos mensuales","Capitanía","Cuadro deportes / cuentas","Deportes","Cuentas bancarias / moneda"])
     up=st.file_uploader("Archivo",type=["csv","xlsx","xls"])
     if up:
         try:
@@ -578,6 +716,33 @@ elif menu=="Importar archivos":
                              str(r.get("categoria","") or ""),str(r.get("beneficiario","General") or "General"),
                              float(r.get("monto",0) or 0),str(r.get("observaciones","") or "")))
                         st.success(f"{len(df)} movimientos de Capitanía importados.")
+                elif tipo=="Cuadro deportes / cuentas":
+                    st.info("La importación detecta nombres de disciplinas y saldos en archivos históricos. Luego se reconcilian con Capitanía.")
+                    # Busca columnas con nombres similares a deporte / cuenta / actividad y saldo / importe.
+                    cols = list(df.columns)
+                    col_dep = next((c for c in cols if any(k in c for k in ["deporte","actividad","disciplina","cuenta","concepto"])), cols[0] if cols else None)
+                    col_saldo = next((c for c in cols if any(k in c for k in ["saldo","importe","monto","total"])), None)
+                    if col_dep is None:
+                        st.error("No se pudo identificar una columna de deporte/cuenta.")
+                    else:
+                        importados=0
+                        for _,r in df.iterrows():
+                            raw=str(r.get(col_dep,"") or "").strip()
+                            if not raw or raw.lower() in ["nan","total","totales"]:
+                                continue
+                            dep=normalizar_deporte(raw)
+                            execute("INSERT OR IGNORE INTO sports_master(deporte,origen) VALUES(?,?)",(dep,"Archivo cuadro deportes"))
+                            if col_saldo is not None and pd.notna(r.get(col_saldo)):
+                                try:
+                                    saldo=float(r.get(col_saldo))
+                                    execute("""INSERT OR REPLACE INTO sports
+                                    (fecha,deporte,saldo_cuenta,observaciones)
+                                    VALUES(?,?,?,?)""",
+                                    (date.today().isoformat(),dep,saldo,"Importado desde cuadro deportes/cuentas"))
+                                except Exception:
+                                    pass
+                            importados += 1
+                        st.success(f"{importados} filas procesadas. Revisar el módulo Deportes para ver coincidencias.")
                 elif tipo=="Deportes":
                     req=["fecha","deporte"]
                     if not all(x in df.columns for x in req): st.error(f"Requiere {req}")
@@ -659,75 +824,117 @@ elif menu=="Pesos y dólares":
     else: st.dataframe(ac,use_container_width=True,hide_index=True)
 
 elif menu=="Capitanía":
-    section("CAPITANÍA · GASTOS Y DISTRIBUCIÓN")
+    section("CAPITANÍA · GASTOS Y DISTRIBUCIÓN POR DEPORTE")
 
-    cap = fetch_df("SELECT * FROM capitania ORDER BY fecha")
-    cap = filtro_mes(cap,"fecha","mes_capitania","Mes a visualizar")
-    if cap.empty:
-        st.info("Todavía no hay datos de Capitanía.")
+    cap_total = fetch_df("SELECT * FROM capitania ORDER BY fecha")
+    cap_det = fetch_df("SELECT * FROM capitania_identificada ORDER BY fecha")
+    cap_total = filtro_mes(cap_total,"fecha","mes_capitania","Mes a visualizar")
+    cap_det = filtro_mes(cap_det,"fecha","mes_capitania_det","Detalle identificado: mes")
+
+    if cap_total.empty:
+        st.info("Todavía no hay datos mensuales de Capitanía.")
     else:
-        cap["fecha_dt"] = pd.to_datetime(cap["fecha"])
+        cap_total["fecha_dt"]=pd.to_datetime(cap_total["fecha"])
+        mensual = cap_total[
+            (cap_total["beneficiario"]=="General") &
+            (cap_total["concepto"]=="Gasto mensual Capitanía")
+        ].copy()
+        mensual["mes_dt"]=pd.to_datetime(mensual["mes"]+"-01")
+        mensual=mensual.sort_values("mes_dt")
 
-        # Gasto mensual general (evita sumar nuevamente las imputaciones deportivas históricas)
-        mensual = cap[
-            (cap["beneficiario"]=="General") &
-            (cap["concepto"]=="Gasto mensual Capitanía")
-        ].groupby("mes",as_index=False)["monto"].sum()
+        # Ejercicios: período 1 hasta febrero inclusive; período 2 desde marzo.
+        p1 = mensual[mensual["mes_dt"] < pd.Timestamp("2026-03-01")].copy()
+        p2 = mensual[mensual["mes_dt"] >= pd.Timestamp("2026-03-01")].copy()
+        p1["acumulado_ejercicio"]=p1["monto"].cumsum()
+        p2["acumulado_ejercicio"]=p2["monto"].cumsum()
 
-        asignado = cap[cap["beneficiario"]!="General"].groupby("beneficiario",as_index=False)["monto"].sum().sort_values("monto",ascending=False)
+        total=float(mensual["monto"].sum())
+        total_p1=float(p1["monto"].sum())
+        total_p2=float(p2["monto"].sum())
+        ultimo=float(mensual.iloc[-1]["monto"]) if not mensual.empty else 0
 
-        total_general = float(mensual["monto"].sum()) if not mensual.empty else 0
-        total_asignado = float(asignado["monto"].sum()) if not asignado.empty else 0
-        beneficiarios = int(asignado["beneficiario"].nunique()) if not asignado.empty else 0
-        ultimo_mes = mensual.iloc[-1]["monto"] if not mensual.empty else 0
+        asignado = cap_det.groupby(["deporte_normalizado","estado_match"],as_index=False)["monto"].sum().sort_values("monto",ascending=False) if not cap_det.empty else pd.DataFrame()
+        total_asignado=float(asignado["monto"].sum()) if not asignado.empty else 0
+        deportes_match=int((asignado["estado_match"]=="Coincide").sum()) if not asignado.empty else 0
 
-        c1,c2,c3,c4 = st.columns(4)
-        with c1: card("Gasto histórico mensual",ars(total_general),"Serie cargada de Capitanía")
-        with c2: card("Último mes cargado",ars(ultimo_mes),"Gasto mensual Capitanía")
-        with c3: card("Gasto deportivo identificado",ars(total_asignado),"Imputación económica a disciplinas")
-        with c4: card("Beneficiarios deportivos",str(beneficiarios),"Áreas/deportes identificados")
+        c1,c2,c3,c4,c5,c6=st.columns(6)
+        with c1: card("Gasto total acumulado",ars(total),"Desde inicio de información")
+        with c2: card("Acumulado inicio–Feb 2026",ars(total_p1),"Ejercicio / período cerrado")
+        with c3: card("Acumulado Mar 2026–actual",ars(total_p2),"Ejercicio actual")
+        with c4: card("Último mes cargado",ars(ultimo),mensual.iloc[-1]["mes"] if not mensual.empty else "")
+        with c5: card("Gasto asignado a deportes",ars(total_asignado),"Movimientos con identificación")
+        with c6: card("Coincidencias exactas",str(deportes_match),"Con cuenta deportiva")
 
-        a,b = st.columns(2)
-        if not mensual.empty:
-            f=px.bar(mensual,x="mes",y="monto",title="Gasto mensual de Capitanía")
-            f.update_layout(yaxis_title="$",xaxis_title="",height=390)
-            a.plotly_chart(f,use_container_width=True)
+        a,b=st.columns([1.35,1])
+        with a:
+            f=go.Figure()
+            f.add_trace(go.Bar(x=mensual["mes"],y=mensual["monto"]/1e6,name="Gasto mensual"))
+            if not p1.empty:
+                f.add_trace(go.Scatter(x=p1["mes"],y=p1["acumulado_ejercicio"]/1e6,name="Acumulado ejercicio 1",mode="lines+markers"))
+            if not p2.empty:
+                f.add_trace(go.Scatter(x=p2["mes"],y=p2["acumulado_ejercicio"]/1e6,name="Acumulado ejercicio 2",mode="lines+markers"))
+            f.add_vline(x="2026-03",line_dash="dash",line_color="#F28C28")
+            f.update_layout(title="Gasto mensual y acumulado por ejercicio",yaxis_title="$ millones",height=430,legend_orientation="h")
+            st.plotly_chart(f,use_container_width=True)
 
-        if not asignado.empty:
-            f2=px.bar(asignado.sort_values("monto"),x="monto",y="beneficiario",orientation="h",
-                      title="Distribución de gastos identificados por beneficiario")
-            f2.update_layout(xaxis_title="$",yaxis_title="",height=430)
-            b.plotly_chart(f2,use_container_width=True)
+        with b:
+            if not asignado.empty:
+                f2=px.bar(asignado.sort_values("monto"),x="monto",y="deporte_normalizado",orientation="h",
+                          color="estado_match",title="Gasto de Capitanía identificado por deporte")
+                f2.update_layout(xaxis_title="$",yaxis_title="",height=430,legend_title="Coincidencia")
+                st.plotly_chart(f2,use_container_width=True)
 
-        section("DISTRIBUCIÓN DE GASTOS DEPORTIVOS PAGADOS POR CAPITANÍA")
-        if not asignado.empty:
-            total = asignado["monto"].sum()
-            asignado["participacion_pct"] = np.where(total>0,asignado["monto"]/total*100,0)
-            display = asignado.rename(columns={"beneficiario":"Beneficiario","monto":"Monto imputado","participacion_pct":"Participación %"})
-            st.dataframe(
-                display,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Monto imputado": st.column_config.NumberColumn(format="$ %.0f"),
-                    "Participación %": st.column_config.NumberColumn(format="%.1f %%")
-                }
-            )
-            st.markdown(
-                '<div class="subtle-note"><b>Criterio:</b> un gasto pagado por Capitanía que beneficia directamente '
-                'a un deporte debe mantenerse como salida de Capitanía, pero también imputarse económicamente a esa '
-                'disciplina para medir su costo real y su autosustentabilidad.</div>',
-                unsafe_allow_html=True,
-            )
+        section("COMPARATIVO ENTRE EJERCICIOS")
+        comp=pd.DataFrame([
+            ["Inicio información – Feb 2026",total_p1, total_p1/total*100 if total else 0],
+            ["Mar 2026 – Actual",total_p2, total_p2/total*100 if total else 0],
+            ["TOTAL",total,100.0 if total else 0],
+        ],columns=["Período","Gasto acumulado","Participación %"])
+        st.dataframe(comp,use_container_width=True,hide_index=True,
+                     column_config={"Gasto acumulado":st.column_config.NumberColumn(format="$ %.0f"),
+                                    "Participación %":st.column_config.NumberColumn(format="%.1f %%")})
 
-        section("DETALLE DE MOVIMIENTOS")
-        st.dataframe(
-            cap[["fecha","proveedor","concepto","categoria","beneficiario","monto","observaciones"]]
-            .sort_values("fecha",ascending=False),
-            use_container_width=True,
-            hide_index=True,
-            column_config={"monto":st.column_config.NumberColumn("Monto",format="$ %.0f")}
-        )
+    section("RECONCILIACIÓN CAPITANÍA ↔ CUENTAS DEPORTIVAS")
+    master=fetch_df("SELECT deporte FROM sports_master WHERE activo=1 ORDER BY deporte")
+    saldos=fetch_df("""SELECT s.deporte,s.fecha,s.saldo_cuenta
+                       FROM sports s
+                       JOIN (SELECT deporte,MAX(fecha) fecha FROM sports GROUP BY deporte) u
+                       ON s.deporte=u.deporte AND s.fecha=u.fecha""")
+    if not cap_det.empty:
+        imp=cap_det.groupby(["deporte_normalizado","estado_match"],as_index=False)["monto"].sum()
+    else:
+        imp=pd.DataFrame(columns=["deporte_normalizado","estado_match","monto"])
+
+    if not master.empty:
+        recon=master.rename(columns={"deporte":"Deporte"}).copy()
+        recon=recon.merge(saldos.rename(columns={"deporte":"Deporte","saldo_cuenta":"Saldo cuenta","fecha":"Último corte"}),on="Deporte",how="left")
+        recon=recon.merge(imp[imp["estado_match"]=="Coincide"][["deporte_normalizado","monto"]].rename(columns={"deporte_normalizado":"Deporte","monto":"Capitanía asignada"}),on="Deporte",how="left")
+        recon["Capitanía asignada"]=recon["Capitanía asignada"].fillna(0)
+        recon["Saldo ajustado gerencial"]=recon["Saldo cuenta"].fillna(0)-recon["Capitanía asignada"]
+        recon["Estado"]=np.where(recon["Saldo cuenta"].isna(),"⚪ Sin saldo cargado",
+                           np.where(recon["Saldo ajustado gerencial"]<0,"🔴 Déficit ajustado","🟢 Positivo ajustado"))
+        st.dataframe(recon,use_container_width=True,hide_index=True,
+                     column_config={
+                         "Saldo cuenta":st.column_config.NumberColumn(format="$ %.0f"),
+                         "Capitanía asignada":st.column_config.NumberColumn(format="$ %.0f"),
+                         "Saldo ajustado gerencial":st.column_config.NumberColumn(format="$ %.0f")
+                     })
+
+    ambiguos = imp[imp["estado_match"]!="Coincide"].copy() if not imp.empty else pd.DataFrame()
+    if not ambiguos.empty:
+        st.warning("Existen imputaciones de Capitanía que no pueden asociarse automáticamente a una cuenta deportiva.")
+        st.dataframe(ambiguos,use_container_width=True,hide_index=True,
+                     column_config={"monto":st.column_config.NumberColumn(format="$ %.0f")})
+
+    section("DETALLE DE GASTOS IDENTIFICADOS EN CAPITANÍA")
+    if cap_det.empty:
+        st.info("No hay movimientos identificados para el filtro seleccionado.")
+    else:
+        st.dataframe(cap_det[["fecha","proveedor","concepto","categoria","beneficiario_original","deporte_normalizado","estado_match","monto","observaciones"]]
+                     .sort_values("fecha",ascending=False),
+                     use_container_width=True,hide_index=True,
+                     column_config={"monto":st.column_config.NumberColumn("Monto",format="$ %.0f")})
+        st.caption("La imputación es gerencial: debe validarse contra factura, orden de compra y centro de costo antes de una reclasificación contable.")
 
     section("CARGA MANUAL DE CAPITANÍA")
     with st.form("capitania_form"):
@@ -752,16 +959,37 @@ elif menu=="Capitanía":
         VALUES(?,?,?,?,?,?,?,?)""",
         (fd.isoformat(),fd.strftime("%Y-%m"),proveedor.strip(),concepto.strip(),categoria,
          beneficiario.strip() or "General",monto,obs.strip()))
-        st.success("Movimiento de Capitanía guardado.")
+        dep_norm=normalizar_deporte(beneficiario)
+        deportes_validos=set(fetch_df("SELECT deporte FROM sports_master WHERE activo=1")["deporte"].tolist())
+        match=estado_match_deporte(dep_norm,deportes_validos)
+        if beneficiario.strip().lower()!="general":
+            execute("""INSERT OR REPLACE INTO capitania_identificada
+            (fecha,proveedor,concepto,categoria,beneficiario_original,deporte_normalizado,estado_match,monto,observaciones)
+            VALUES(?,?,?,?,?,?,?,?,?)""",
+            (fd.isoformat(),proveedor.strip(),concepto.strip(),categoria,beneficiario.strip(),dep_norm,match,monto,obs.strip()))
+        st.success("Movimiento de Capitanía guardado y conciliado.")
 
 elif menu=="Deportes":
-    section("DEPORTES")
+    section("DEPORTES · CUENTAS, CAPITANÍA Y RESULTADO AJUSTADO")
+
+    # Catálogo consolidado: cuentas + maestro + gastos de Capitanía.
+    master=fetch_df("SELECT deporte,origen,activo,observaciones FROM sports_master WHERE activo=1 ORDER BY deporte")
+    if not master.empty:
+        st.caption(f"Catálogo consolidado: {len(master)} deportes/áreas activas.")
+        with st.expander("Ver catálogo completo de deportes",expanded=False):
+            st.dataframe(master,use_container_width=True,hide_index=True)
+
     sp=fetch_df("SELECT * FROM sports ORDER BY fecha DESC,deporte")
     latest_date=sp["fecha"].max()
     latest=sp[sp["fecha"]==latest_date].copy()
     latest["resultado_economico"]=latest["ingresos"]-latest["egresos_directos"]-latest["gastos_indirectos"]
+    cap_imp=fetch_df("SELECT deporte_normalizado,SUM(monto) monto FROM capitania_identificada WHERE estado_match='Coincide' GROUP BY deporte_normalizado")
+    latest=latest.merge(cap_imp.rename(columns={"deporte_normalizado":"deporte","monto":"capitania_asignada"}),on="deporte",how="left")
+    latest["capitania_asignada"]=latest["capitania_asignada"].fillna(0)
+    latest["saldo_ajustado_capitania"]=latest["saldo_cuenta"]-latest["capitania_asignada"]
+
     latest["cobertura_pct"]=np.where(latest["egresos_directos"]+latest["gastos_indirectos"]>0,latest["ingresos"]/(latest["egresos_directos"]+latest["gastos_indirectos"])*100,np.nan)
-    f=px.bar(latest.sort_values("saldo_cuenta"),x="saldo_cuenta",y="deporte",orientation="h",title=f"Saldo por deporte · {latest_date}")
+    f=px.bar(latest.sort_values("saldo_ajustado_capitania"),x="saldo_ajustado_capitania",y="deporte",orientation="h",title=f"Saldo por deporte ajustado por Capitanía · {latest_date}")
     f.update_layout(height=max(450,28*len(latest)),xaxis_title="$",yaxis_title="")
     st.plotly_chart(f,use_container_width=True)
     st.dataframe(latest,use_container_width=True,hide_index=True)
@@ -807,6 +1035,8 @@ else:
         "cierres_semanales":fetch_df("SELECT * FROM weekly_finance ORDER BY fecha"),
         "socios_mensual":fetch_df("SELECT * FROM monthly_members ORDER BY mes"),
         "capitania":fetch_df("SELECT * FROM capitania ORDER BY fecha"),
+        "capitania_identificada":fetch_df("SELECT * FROM capitania_identificada ORDER BY fecha"),
+        "maestro_deportes":fetch_df("SELECT * FROM sports_master ORDER BY deporte"),
         "deportes":fetch_df("SELECT * FROM sports ORDER BY fecha,deporte"),
         "cuentas":fetch_df("SELECT * FROM accounts ORDER BY fecha,moneda,cuenta"),
         "movimientos":fetch_df("SELECT * FROM events ORDER BY fecha,id"),
