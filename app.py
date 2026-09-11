@@ -11,9 +11,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-APP_VERSION = "V1.0"
+APP_VERSION = "V1.2"
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "regatas_tesoreria.db"
+CLUB_LOGO_URL = "https://seeklogo.com/images/R/regatas-de-san-nicolas-buenos-aires-logo-E3F6039062-seeklogo.com.png"
 
 BLUE = "#123B63"
 BLUE_2 = "#1E5A8A"
@@ -24,7 +25,7 @@ YELLOW = "#D6A100"
 RED = "#C62828"
 GRAY = "#6B7280"
 
-st.set_page_config(page_title="Regatas · Tesorería", page_icon="⚓", layout="wide")
+st.set_page_config(page_title="Regatas · Tesorería", page_icon=CLUB_LOGO_URL, layout="wide")
 
 st.markdown(
     f"""
@@ -132,6 +133,19 @@ def init_db():
             UNIQUE(fecha, deporte)
         );
 
+        CREATE TABLE IF NOT EXISTS capitania (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha TEXT NOT NULL,
+            mes TEXT NOT NULL,
+            proveedor TEXT DEFAULT '',
+            concepto TEXT DEFAULT '',
+            categoria TEXT DEFAULT '',
+            beneficiario TEXT DEFAULT 'General',
+            monto REAL DEFAULT 0,
+            observaciones TEXT DEFAULT '',
+            UNIQUE(fecha, proveedor, concepto, monto)
+        );
+
         CREATE TABLE IF NOT EXISTS accounts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             fecha TEXT NOT NULL,
@@ -215,9 +229,57 @@ def seed_if_empty():
         with conn() as c:
             c.executemany("""INSERT INTO sports (fecha,deporte,saldo_cuenta) VALUES (?,?,?)""", rows)
 
+    if fetch_df("SELECT COUNT(*) n FROM capitania").iloc[0]["n"] == 0:
+        beneficiarios = [
+            ("2026-06-30","2026-06","Histórico integrado","Gastos deportivos identificados","Deporte","Natación / pileta",27_812_302,"Total identificado en informe contable"),
+            ("2026-06-30","2026-06","Histórico integrado","Gastos deportivos identificados","Deporte","Hockey",11_277_647,"Total identificado en informe contable"),
+            ("2026-06-30","2026-06","Histórico integrado","Gastos deportivos identificados","Deporte","Tenis",10_131_000,"Total identificado en informe contable"),
+            ("2026-06-30","2026-06","Histórico integrado","Gastos deportivos identificados","Deporte","Básquet",9_956_290,"Total identificado en informe contable"),
+            ("2026-06-30","2026-06","Histórico integrado","Gastos deportivos identificados","Deporte","Gimnasio / pesas / Remo",9_014_382,"Total identificado en informe contable"),
+            ("2026-06-30","2026-06","Histórico integrado","Gastos deportivos identificados","Deporte","Gimnasio / pesas",6_992_146,"Total identificado en informe contable"),
+            ("2026-06-30","2026-06","Histórico integrado","Gastos deportivos identificados","Deporte","Yachting / náutica",4_865_657,"Total identificado en informe contable"),
+            ("2026-06-30","2026-06","Histórico integrado","Gastos deportivos identificados","Deporte","Rugby",2_483_714,"Total identificado en informe contable"),
+            ("2026-06-30","2026-06","Histórico integrado","Gastos deportivos identificados","Deporte","Remo",303_790,"Total identificado en informe contable"),
+            ("2026-06-30","2026-06","Histórico integrado","Gastos deportivos identificados","Deporte","Karate",302_000,"Total identificado en informe contable"),
+        ]
+        monthly = [
+            ("2025-08-31","2025-08","Histórico integrado","Gasto mensual Capitanía","General","General",62_630_775,"Ciclo cerrado"),
+            ("2025-09-30","2025-09","Histórico integrado","Gasto mensual Capitanía","General","General",47_151_677,"Ciclo cerrado"),
+            ("2025-10-31","2025-10","Histórico integrado","Gasto mensual Capitanía","General","General",53_288_162,"Ciclo cerrado"),
+            ("2025-11-30","2025-11","Histórico integrado","Gasto mensual Capitanía","General","General",56_125_313,"Ciclo cerrado"),
+            ("2025-12-31","2025-12","Histórico integrado","Gasto mensual Capitanía","General","General",43_668_444,"Ciclo cerrado"),
+            ("2026-01-31","2026-01","Histórico integrado","Gasto mensual Capitanía","General","General",71_887_306,"Ciclo cerrado"),
+            ("2026-02-28","2026-02","Histórico integrado","Gasto mensual Capitanía","General","General",57_481_140,"Ciclo cerrado"),
+            ("2026-03-31","2026-03","Histórico integrado","Gasto mensual Capitanía","General","General",32_141_911,"Ciclo actual"),
+            ("2026-04-30","2026-04","Histórico integrado","Gasto mensual Capitanía","General","General",37_500_927,"Ciclo actual"),
+            ("2026-05-31","2026-05","Histórico integrado","Gasto mensual Capitanía","General","General",44_603_637,"Ciclo actual"),
+            ("2026-06-30","2026-06","Histórico integrado","Gasto mensual Capitanía","General","General",45_281_812,"Ciclo actual"),
+        ]
+        with conn() as c:
+            c.executemany("""INSERT OR IGNORE INTO capitania
+                (fecha,mes,proveedor,concepto,categoria,beneficiario,monto,observaciones)
+                VALUES (?,?,?,?,?,?,?,?)""", monthly + beneficiarios)
+
+
 init_db()
 
 # ---------------- helpers ----------------
+
+# Selector mensual reutilizable.
+# Devuelve el DataFrame filtrado; "Todos" permite ver el historial completo.
+def filtro_mes(df, fecha_col, key, label="Mes"):
+    if df is None or df.empty or fecha_col not in df.columns:
+        return df
+    out = df.copy()
+    fechas = pd.to_datetime(out[fecha_col], errors="coerce")
+    meses = sorted(fechas.dropna().dt.strftime("%Y-%m").unique().tolist(), reverse=True)
+    opciones = ["Todos"] + meses
+    elegido = st.selectbox(label, opciones, index=0, key=key)
+    if elegido != "Todos":
+        out = out[fechas.dt.strftime("%Y-%m") == elegido].copy()
+    return out
+
+
 def ars(v):
     if v is None or pd.isna(v): return "—"
     sign = "-" if float(v) < 0 else ""
@@ -295,12 +357,16 @@ def norm_cols(df):
     return df
 
 # ---------------- header ----------------
-st.markdown(f"""<div class="regatas-header"><h1>⚓ Club de Regatas San Nicolás · Tesorería</h1>
-<p>{APP_VERSION} · Tablero semanal de KPI · Pesos · Dólares · Socios · Deportes · Desvíos</p></div>""",unsafe_allow_html=True)
+logo_col, title_col = st.columns([1, 7])
+with logo_col:
+    st.image(CLUB_LOGO_URL, width=105)
+with title_col:
+    st.markdown(f"""<div class="regatas-header"><h1>Club de Regatas San Nicolás · Tesorería</h1>
+    <p>{APP_VERSION} · Tablero semanal de KPI · Vista completa · Selector mensual · Pesos · Dólares · Socios · Capitanía · Deportes · Desvíos</p></div>""",unsafe_allow_html=True)
 
 menu=st.sidebar.radio("Módulo",[
     "Tablero semanal","Carga manual","Importar archivos","Socios y morosidad","Pesos y dólares",
-    "Deportes","Movimientos / desvíos","Base de datos y exportación"
+    "Capitanía","Deportes","Movimientos / desvíos","Base de datos y exportación"
 ])
 st.sidebar.markdown("---")
 st.sidebar.caption("Base inicial construida con la información histórica suministrada hasta septiembre de 2026.")
@@ -447,7 +513,7 @@ elif menu=="Carga manual":
 
 elif menu=="Importar archivos":
     section("IMPORTAR CSV / XLSX")
-    tipo=st.selectbox("Tipo",["Cierres semanales","Socios e ingresos mensuales","Deportes","Cuentas bancarias / moneda"])
+    tipo=st.selectbox("Tipo",["Cierres semanales","Socios e ingresos mensuales","Capitanía","Deportes","Cuentas bancarias / moneda"])
     up=st.file_uploader("Archivo",type=["csv","xlsx","xls"])
     if up:
         try:
@@ -497,6 +563,21 @@ elif menu=="Importar archivos":
                              float(r["deuda_morosa_real"]) if pd.notna(r.get("deuda_morosa_real")) else None,
                              float(r["ajuste_cuota_pct"]) if pd.notna(r.get("ajuste_cuota_pct")) else None))
                         st.success(f"{len(df)} meses importados.")
+                elif tipo=="Capitanía":
+                    req=["fecha","monto"]
+                    if not all(x in df.columns for x in req):
+                        st.error(f"Requiere {req}. Recomendadas: proveedor, concepto, categoria, beneficiario, observaciones.")
+                    else:
+                        for _,r in df.iterrows():
+                            f=pd.to_datetime(r["fecha"]).date().isoformat()
+                            mes=pd.to_datetime(r["fecha"]).strftime("%Y-%m")
+                            execute("""INSERT OR REPLACE INTO capitania
+                            (fecha,mes,proveedor,concepto,categoria,beneficiario,monto,observaciones)
+                            VALUES(?,?,?,?,?,?,?,?)""",
+                            (f,mes,str(r.get("proveedor","") or ""),str(r.get("concepto","") or ""),
+                             str(r.get("categoria","") or ""),str(r.get("beneficiario","General") or "General"),
+                             float(r.get("monto",0) or 0),str(r.get("observaciones","") or "")))
+                        st.success(f"{len(df)} movimientos de Capitanía importados.")
                 elif tipo=="Deportes":
                     req=["fecha","deporte"]
                     if not all(x in df.columns for x in req): st.error(f"Requiere {req}")
@@ -531,10 +612,11 @@ elif menu=="Importar archivos":
     templates={
         "cierres":pd.DataFrame(columns=["fecha","tenencias_pesos","obligaciones_pesos","sueldos","f931","fondo_reserva_pesos","usd_brutos","usd_afectados","usd_venta_inmueble","tipo_cambio","cobranzas_cuota","facturacion_exigible","deuda_vencida","gastos_capitania","gastos_extraordinarios"]),
         "socios":pd.DataFrame(columns=["mes","ingresos_totales","ingresos_gr","total_general","especificos","socios_pagadores","morosidad_pct","morosos_reales","deuda_morosa_real","ajuste_cuota_pct"]),
+        "capitania":pd.DataFrame(columns=["fecha","proveedor","concepto","categoria","beneficiario","monto","observaciones"]),
         "deportes":pd.DataFrame(columns=["fecha","deporte","ingresos","egresos_directos","gastos_indirectos","saldo_cuenta","socios","cuota_promedio","observaciones"]),
         "cuentas":pd.DataFrame(columns=["fecha","cuenta","moneda","saldo","tipo_cambio","afectado","categoria","observaciones"])
     }
-    cols=st.columns(4)
+    cols=st.columns(5)
     for col,(name,t) in zip(cols,templates.items()):
         col.download_button(name.title(),t.to_csv(index=False).encode("utf-8-sig"),f"plantilla_{name}.csv","text/csv")
 
@@ -562,7 +644,7 @@ elif menu=="Pesos y dólares":
     f=go.Figure()
     f.add_trace(go.Scatter(x=wf["fecha"],y=wf["usd_brutos"],name="USD brutos",mode="lines+markers"))
     f.add_trace(go.Scatter(x=wf["fecha"],y=wf["usd_libres"],name="USD libres ajustados",mode="lines+markers"))
-    f.update_layout(title="Stock de USD",yaxis_title="USD",height=390,legend_orientation="h")
+    f.update_layout(title="Stock de USD",yaxis_title="USD",legend_orientation="h")
     st.plotly_chart(f,use_container_width=True)
     a,b=st.columns(2)
     f2=go.Figure()
@@ -575,6 +657,102 @@ elif menu=="Pesos y dólares":
     ac=fetch_df("SELECT * FROM accounts ORDER BY fecha DESC, moneda, cuenta")
     if ac.empty: st.info("Cargar o importar detalle por banco/cuenta.")
     else: st.dataframe(ac,use_container_width=True,hide_index=True)
+
+elif menu=="Capitanía":
+    section("CAPITANÍA · GASTOS Y DISTRIBUCIÓN")
+
+    cap = fetch_df("SELECT * FROM capitania ORDER BY fecha")
+    cap = filtro_mes(cap,"fecha","mes_capitania","Mes a visualizar")
+    if cap.empty:
+        st.info("Todavía no hay datos de Capitanía.")
+    else:
+        cap["fecha_dt"] = pd.to_datetime(cap["fecha"])
+
+        # Gasto mensual general (evita sumar nuevamente las imputaciones deportivas históricas)
+        mensual = cap[
+            (cap["beneficiario"]=="General") &
+            (cap["concepto"]=="Gasto mensual Capitanía")
+        ].groupby("mes",as_index=False)["monto"].sum()
+
+        asignado = cap[cap["beneficiario"]!="General"].groupby("beneficiario",as_index=False)["monto"].sum().sort_values("monto",ascending=False)
+
+        total_general = float(mensual["monto"].sum()) if not mensual.empty else 0
+        total_asignado = float(asignado["monto"].sum()) if not asignado.empty else 0
+        beneficiarios = int(asignado["beneficiario"].nunique()) if not asignado.empty else 0
+        ultimo_mes = mensual.iloc[-1]["monto"] if not mensual.empty else 0
+
+        c1,c2,c3,c4 = st.columns(4)
+        with c1: card("Gasto histórico mensual",ars(total_general),"Serie cargada de Capitanía")
+        with c2: card("Último mes cargado",ars(ultimo_mes),"Gasto mensual Capitanía")
+        with c3: card("Gasto deportivo identificado",ars(total_asignado),"Imputación económica a disciplinas")
+        with c4: card("Beneficiarios deportivos",str(beneficiarios),"Áreas/deportes identificados")
+
+        a,b = st.columns(2)
+        if not mensual.empty:
+            f=px.bar(mensual,x="mes",y="monto",title="Gasto mensual de Capitanía")
+            f.update_layout(yaxis_title="$",xaxis_title="",height=390)
+            a.plotly_chart(f,use_container_width=True)
+
+        if not asignado.empty:
+            f2=px.bar(asignado.sort_values("monto"),x="monto",y="beneficiario",orientation="h",
+                      title="Distribución de gastos identificados por beneficiario")
+            f2.update_layout(xaxis_title="$",yaxis_title="",height=430)
+            b.plotly_chart(f2,use_container_width=True)
+
+        section("DISTRIBUCIÓN DE GASTOS DEPORTIVOS PAGADOS POR CAPITANÍA")
+        if not asignado.empty:
+            total = asignado["monto"].sum()
+            asignado["participacion_pct"] = np.where(total>0,asignado["monto"]/total*100,0)
+            display = asignado.rename(columns={"beneficiario":"Beneficiario","monto":"Monto imputado","participacion_pct":"Participación %"})
+            st.dataframe(
+                display,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Monto imputado": st.column_config.NumberColumn(format="$ %.0f"),
+                    "Participación %": st.column_config.NumberColumn(format="%.1f %%")
+                }
+            )
+            st.markdown(
+                '<div class="subtle-note"><b>Criterio:</b> un gasto pagado por Capitanía que beneficia directamente '
+                'a un deporte debe mantenerse como salida de Capitanía, pero también imputarse económicamente a esa '
+                'disciplina para medir su costo real y su autosustentabilidad.</div>',
+                unsafe_allow_html=True,
+            )
+
+        section("DETALLE DE MOVIMIENTOS")
+        st.dataframe(
+            cap[["fecha","proveedor","concepto","categoria","beneficiario","monto","observaciones"]]
+            .sort_values("fecha",ascending=False),
+            use_container_width=True,
+            hide_index=True,
+            column_config={"monto":st.column_config.NumberColumn("Monto",format="$ %.0f")}
+        )
+
+    section("CARGA MANUAL DE CAPITANÍA")
+    with st.form("capitania_form"):
+        a,b,c=st.columns(3)
+        fd=a.date_input("Fecha",value=date.today(),key="cap_date")
+        proveedor=b.text_input("Proveedor")
+        categoria=c.selectbox("Categoría",[
+            "Mantenimiento general","Obras / construcción","Electricidad / iluminación",
+            "Equipamiento / mobiliario","Limpieza / químicos","Maquinaria / rodados",
+            "Personal / ropa / horas extra","Ferretería / repuestos","Deporte","Otros"
+        ])
+        concepto=st.text_input("Concepto / descripción")
+        a,b=st.columns(2)
+        beneficiario=a.text_input("Beneficiario / deporte",value="General")
+        monto=b.number_input("Monto",min_value=0.0,step=100_000.0)
+        obs=st.text_area("Observaciones",key="cap_obs")
+        ok=st.form_submit_button("Guardar movimiento de Capitanía",type="primary",use_container_width=True)
+
+    if ok and monto>0:
+        execute("""INSERT OR REPLACE INTO capitania
+        (fecha,mes,proveedor,concepto,categoria,beneficiario,monto,observaciones)
+        VALUES(?,?,?,?,?,?,?,?)""",
+        (fd.isoformat(),fd.strftime("%Y-%m"),proveedor.strip(),concepto.strip(),categoria,
+         beneficiario.strip() or "General",monto,obs.strip()))
+        st.success("Movimiento de Capitanía guardado.")
 
 elif menu=="Deportes":
     section("DEPORTES")
@@ -628,6 +806,7 @@ else:
     tables={
         "cierres_semanales":fetch_df("SELECT * FROM weekly_finance ORDER BY fecha"),
         "socios_mensual":fetch_df("SELECT * FROM monthly_members ORDER BY mes"),
+        "capitania":fetch_df("SELECT * FROM capitania ORDER BY fecha"),
         "deportes":fetch_df("SELECT * FROM sports ORDER BY fecha,deporte"),
         "cuentas":fetch_df("SELECT * FROM accounts ORDER BY fecha,moneda,cuenta"),
         "movimientos":fetch_df("SELECT * FROM events ORDER BY fecha,id"),
@@ -645,6 +824,7 @@ else:
         ["Morosidad","Deuda vencida / Facturación exigible","Alerta >15%"],
         ["Ingreso por socio","Ingresos Gr. / Socios pagadores","Comparar con ajuste de cuota / UTEDyC"],
         ["Costo laboral / ingresos","(Sueldos + F.931) / Ingresos","Separar efecto SAC"],
+        ["Capitanía / ingresos","Gasto mensual Capitanía / Ingresos totales","Peso de estructura operativa"],
         ["Cobertura deporte","Ingresos / (gastos directos + indirectos)","Autosustentabilidad"],
         ["Fondo de Reserva","Fondos a favor - fondos en contra","Separar recursos afectados"],
         ["Gastos extraordinarios","Pagos no recurrentes > umbral","Explicación obligatoria"],
