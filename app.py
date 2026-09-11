@@ -11,7 +11,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-APP_VERSION = "V1.3"
+APP_VERSION = "V1.4"
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "regatas_tesoreria.db"
 LOGO_PATH = BASE_DIR / "logo_regatas_oficial.png"
@@ -158,6 +158,16 @@ def init_db():
             monto REAL DEFAULT 0,
             observaciones TEXT DEFAULT '',
             UNIQUE(fecha, proveedor, concepto, monto)
+        );
+
+        CREATE TABLE IF NOT EXISTS sports_aug_2026 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            deporte TEXT UNIQUE NOT NULL,
+            ingresos_cuota REAL DEFAULT NULL,
+            sueldos_personal REAL DEFAULT NULL,
+            observaciones TEXT DEFAULT '',
+            fuente TEXT DEFAULT 'Manual',
+            actualizado_en TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
         CREATE TABLE IF NOT EXISTS sports_master (
@@ -337,6 +347,18 @@ def seed_if_empty():
                 VALUES(?,?,?,?,?,?,?,?,?)""", movs)
 
 
+    # Agosto 2026: se crean únicamente los nombres de deportes.
+    # Los importes quedan NULL hasta que Tesorería cargue datos reales.
+    if fetch_df("SELECT COUNT(*) n FROM sports_aug_2026").iloc[0]["n"] == 0:
+        deportes_agosto = fetch_df("SELECT deporte FROM sports_master WHERE activo=1 ORDER BY deporte")
+        if not deportes_agosto.empty:
+            with conn() as c:
+                c.executemany(
+                    "INSERT OR IGNORE INTO sports_aug_2026(deporte,ingresos_cuota,sueldos_personal,fuente) VALUES(?,NULL,NULL,'Pendiente')",
+                    [(d,) for d in deportes_agosto["deporte"].tolist()]
+                )
+
+
 init_db()
 
 # ---------------- helpers ----------------
@@ -497,10 +519,13 @@ def norm_cols(df):
 # ---------------- header ----------------
 logo_col, title_col = st.columns([1, 7])
 with logo_col:
-    st.image(str(LOGO_PATH), width=125) if LOGO_PATH.exists() else st.markdown("### CRSN")
+    if LOGO_PATH.exists():
+        st.image(str(LOGO_PATH), width=125)
+    else:
+        st.markdown("### CRSN")
 with title_col:
     st.markdown(f"""<div class="regatas-header"><h1>Club de Regatas San Nicolás · Tesorería</h1>
-    <p>{APP_VERSION} · Control financiero · Capitanía por ejercicio · Conciliación cuentas deportivas · Selector mensual · Pesos · Dólares</p></div>""",unsafe_allow_html=True)
+    <p>{APP_VERSION} · Control financiero · Capitanía por ejercicio · Deportes Agosto 2026 · Pesos · Dólares · KPI</p></div>""",unsafe_allow_html=True)
 
 menu=st.sidebar.radio("Módulo",[
     "Tablero semanal","Carga manual","Importar archivos","Socios y morosidad","Pesos y dólares",
@@ -651,7 +676,7 @@ elif menu=="Carga manual":
 
 elif menu=="Importar archivos":
     section("IMPORTAR CSV / XLSX")
-    tipo=st.selectbox("Tipo",["Cierres semanales","Socios e ingresos mensuales","Capitanía","Cuadro deportes / cuentas","Deportes","Cuentas bancarias / moneda"])
+    tipo=st.selectbox("Tipo",["Cierres semanales","Socios e ingresos mensuales","Capitanía","Deportes Agosto 2026","Cuentas bancarias / moneda"])
     up=st.file_uploader("Archivo",type=["csv","xlsx","xls"])
     if up:
         try:
@@ -716,48 +741,33 @@ elif menu=="Importar archivos":
                              str(r.get("categoria","") or ""),str(r.get("beneficiario","General") or "General"),
                              float(r.get("monto",0) or 0),str(r.get("observaciones","") or "")))
                         st.success(f"{len(df)} movimientos de Capitanía importados.")
-                elif tipo=="Cuadro deportes / cuentas":
-                    st.info("La importación detecta nombres de disciplinas y saldos en archivos históricos. Luego se reconcilian con Capitanía.")
-                    # Busca columnas con nombres similares a deporte / cuenta / actividad y saldo / importe.
-                    cols = list(df.columns)
-                    col_dep = next((c for c in cols if any(k in c for k in ["deporte","actividad","disciplina","cuenta","concepto"])), cols[0] if cols else None)
-                    col_saldo = next((c for c in cols if any(k in c for k in ["saldo","importe","monto","total"])), None)
-                    if col_dep is None:
-                        st.error("No se pudo identificar una columna de deporte/cuenta.")
+                elif tipo=="Deportes Agosto 2026":
+                    req=["deporte","ingresos_cuota_agosto","sueldos_personal_agosto"]
+                    if not all(x in df.columns for x in req):
+                        st.error(f"Columnas requeridas: {req}")
                     else:
                         importados=0
                         for _,r in df.iterrows():
-                            raw=str(r.get(col_dep,"") or "").strip()
-                            if not raw or raw.lower() in ["nan","total","totales"]:
+                            dep=str(r.get("deporte","") or "").strip()
+                            if not dep:
                                 continue
-                            dep=normalizar_deporte(raw)
-                            execute("INSERT OR IGNORE INTO sports_master(deporte,origen) VALUES(?,?)",(dep,"Archivo cuadro deportes"))
-                            if col_saldo is not None and pd.notna(r.get(col_saldo)):
-                                try:
-                                    saldo=float(r.get(col_saldo))
-                                    execute("""INSERT OR REPLACE INTO sports
-                                    (fecha,deporte,saldo_cuenta,observaciones)
-                                    VALUES(?,?,?,?)""",
-                                    (date.today().isoformat(),dep,saldo,"Importado desde cuadro deportes/cuentas"))
-                                except Exception:
-                                    pass
+                            ing = None if pd.isna(r.get("ingresos_cuota_agosto")) else float(r.get("ingresos_cuota_agosto"))
+                            sue = None if pd.isna(r.get("sueldos_personal_agosto")) else float(r.get("sueldos_personal_agosto"))
+                            obs = str(r.get("observaciones","") or "")
+                            execute("""INSERT INTO sports_aug_2026
+                            (deporte,ingresos_cuota,sueldos_personal,observaciones,fuente,actualizado_en)
+                            VALUES(?,?,?,?,?,CURRENT_TIMESTAMP)
+                            ON CONFLICT(deporte) DO UPDATE SET
+                                ingresos_cuota=excluded.ingresos_cuota,
+                                sueldos_personal=excluded.sueldos_personal,
+                                observaciones=excluded.observaciones,
+                                fuente='Archivo',
+                                actualizado_en=CURRENT_TIMESTAMP""",
+                                (dep,ing,sue,obs,"Archivo"))
+                            execute("INSERT OR IGNORE INTO sports_master(deporte,origen) VALUES(?,?)",
+                                    (dep,"Carga Agosto 2026"))
                             importados += 1
-                        st.success(f"{importados} filas procesadas. Revisar el módulo Deportes para ver coincidencias.")
-                elif tipo=="Deportes":
-                    req=["fecha","deporte"]
-                    if not all(x in df.columns for x in req): st.error(f"Requiere {req}")
-                    else:
-                        for _,r in df.iterrows():
-                            f=pd.to_datetime(r["fecha"]).date().isoformat()
-                            execute("""INSERT INTO sports(fecha,deporte,ingresos,egresos_directos,gastos_indirectos,saldo_cuenta,socios,cuota_promedio,observaciones)
-                            VALUES(?,?,?,?,?,?,?,?,?)
-                            ON CONFLICT(fecha,deporte) DO UPDATE SET ingresos=excluded.ingresos,egresos_directos=excluded.egresos_directos,
-                            gastos_indirectos=excluded.gastos_indirectos,saldo_cuenta=excluded.saldo_cuenta,socios=excluded.socios,
-                            cuota_promedio=excluded.cuota_promedio,observaciones=excluded.observaciones""",
-                            (f,str(r["deporte"]),float(r.get("ingresos",0) or 0),float(r.get("egresos_directos",0) or 0),
-                             float(r.get("gastos_indirectos",0) or 0),float(r.get("saldo_cuenta",0) or 0),int(r.get("socios",0) or 0),
-                             float(r.get("cuota_promedio",0) or 0),str(r.get("observaciones","") or "")))
-                        st.success(f"{len(df)} registros deportivos importados.")
+                        st.success(f"{importados} deportes de Agosto 2026 importados/actualizados.")
                 else:
                     req=["fecha","cuenta","moneda","saldo"]
                     if not all(x in df.columns for x in req): st.error(f"Requiere {req}")
@@ -778,7 +788,7 @@ elif menu=="Importar archivos":
         "cierres":pd.DataFrame(columns=["fecha","tenencias_pesos","obligaciones_pesos","sueldos","f931","fondo_reserva_pesos","usd_brutos","usd_afectados","usd_venta_inmueble","tipo_cambio","cobranzas_cuota","facturacion_exigible","deuda_vencida","gastos_capitania","gastos_extraordinarios"]),
         "socios":pd.DataFrame(columns=["mes","ingresos_totales","ingresos_gr","total_general","especificos","socios_pagadores","morosidad_pct","morosos_reales","deuda_morosa_real","ajuste_cuota_pct"]),
         "capitania":pd.DataFrame(columns=["fecha","proveedor","concepto","categoria","beneficiario","monto","observaciones"]),
-        "deportes":pd.DataFrame(columns=["fecha","deporte","ingresos","egresos_directos","gastos_indirectos","saldo_cuenta","socios","cuota_promedio","observaciones"]),
+        "deportes_agosto_2026":pd.DataFrame(columns=["deporte","ingresos_cuota_agosto","sueldos_personal_agosto","observaciones"]),
         "cuentas":pd.DataFrame(columns=["fecha","cuenta","moneda","saldo","tipo_cambio","afectado","categoria","observaciones"])
     }
     cols=st.columns(5)
@@ -970,46 +980,200 @@ elif menu=="Capitanía":
         st.success("Movimiento de Capitanía guardado y conciliado.")
 
 elif menu=="Deportes":
-    section("DEPORTES · CUENTAS, CAPITANÍA Y RESULTADO AJUSTADO")
+    section("DEPORTES · INGRESOS POR CUOTA Y SUELDOS · AGOSTO 2026")
 
-    # Catálogo consolidado: cuentas + maestro + gastos de Capitanía.
-    master=fetch_df("SELECT deporte,origen,activo,observaciones FROM sports_master WHERE activo=1 ORDER BY deporte")
-    if not master.empty:
-        st.caption(f"Catálogo consolidado: {len(master)} deportes/áreas activas.")
-        with st.expander("Ver catálogo completo de deportes",expanded=False):
-            st.dataframe(master,use_container_width=True,hide_index=True)
+    st.markdown(
+        '<div class="subtle-note"><b>Período fijo: Agosto 2026.</b> '
+        'Los ingresos por cuota deportiva y los sueldos del personal asignado se analizan exclusivamente '
+        'para Agosto 2026. Estos importes <b>no se extrapolan ni se copian a otros meses</b>. '
+        'Los saldos históricos de cuentas deportivas no se utilizan en este cálculo.</div>',
+        unsafe_allow_html=True
+    )
 
-    sp=fetch_df("SELECT * FROM sports ORDER BY fecha DESC,deporte")
-    latest_date=sp["fecha"].max()
-    latest=sp[sp["fecha"]==latest_date].copy()
-    latest["resultado_economico"]=latest["ingresos"]-latest["egresos_directos"]-latest["gastos_indirectos"]
-    cap_imp=fetch_df("SELECT deporte_normalizado,SUM(monto) monto FROM capitania_identificada WHERE estado_match='Coincide' GROUP BY deporte_normalizado")
-    latest=latest.merge(cap_imp.rename(columns={"deporte_normalizado":"deporte","monto":"capitania_asignada"}),on="deporte",how="left")
-    latest["capitania_asignada"]=latest["capitania_asignada"].fillna(0)
-    latest["saldo_ajustado_capitania"]=latest["saldo_cuenta"]-latest["capitania_asignada"]
+    # Mes fijo, visible y bloqueado conceptualmente.
+    st.selectbox(
+        "Mes de análisis",
+        ["Agosto 2026"],
+        index=0,
+        disabled=True,
+        key="mes_deportes_agosto_fijo"
+    )
 
-    latest["cobertura_pct"]=np.where(latest["egresos_directos"]+latest["gastos_indirectos"]>0,latest["ingresos"]/(latest["egresos_directos"]+latest["gastos_indirectos"])*100,np.nan)
-    f=px.bar(latest.sort_values("saldo_ajustado_capitania"),x="saldo_ajustado_capitania",y="deporte",orientation="h",title=f"Saldo por deporte ajustado por Capitanía · {latest_date}")
-    f.update_layout(height=max(450,28*len(latest)),xaxis_title="$",yaxis_title="")
-    st.plotly_chart(f,use_container_width=True)
-    st.dataframe(latest,use_container_width=True,hide_index=True)
-    section("CARGA MANUAL DE DEPORTE")
-    with st.form("sport"):
-        a,b,c=st.columns(3)
-        fd=a.date_input("Fecha",value=date.today(),key="sd"); dep=b.text_input("Deporte"); soc=c.number_input("Socios",min_value=0,step=1)
-        a,b,c=st.columns(3)
-        ing=a.number_input("Ingresos propios",min_value=0.0,step=500_000.0); eg=b.number_input("Egresos directos",min_value=0.0,step=500_000.0); ind=c.number_input("Gastos indirectos / Capitanía",min_value=0.0,step=500_000.0)
-        a,b=st.columns(2)
-        sal=a.number_input("Saldo de cuenta",step=500_000.0); cuota=b.number_input("Cuota promedio",min_value=0.0,step=1000.0)
-        obs=st.text_area("Observaciones",key="so")
-        ok=st.form_submit_button("Guardar deporte",type="primary")
-    if ok and dep.strip():
-        execute("""INSERT INTO sports(fecha,deporte,ingresos,egresos_directos,gastos_indirectos,saldo_cuenta,socios,cuota_promedio,observaciones)
-        VALUES(?,?,?,?,?,?,?,?,?)
-        ON CONFLICT(fecha,deporte) DO UPDATE SET ingresos=excluded.ingresos,egresos_directos=excluded.egresos_directos,
-        gastos_indirectos=excluded.gastos_indirectos,saldo_cuenta=excluded.saldo_cuenta,socios=excluded.socios,cuota_promedio=excluded.cuota_promedio,observaciones=excluded.observaciones""",
-        (fd.isoformat(),dep.strip(),ing,eg,ind,sal,int(soc),cuota,obs))
-        st.success("Registro guardado.")
+    aug = fetch_df("""SELECT deporte,ingresos_cuota,sueldos_personal,observaciones,fuente,actualizado_en
+                      FROM sports_aug_2026
+                      ORDER BY deporte""")
+
+    if aug.empty:
+        st.info("No hay deportes cargados. Agregue un deporte o importe la plantilla de Agosto 2026.")
+    else:
+        aug["resultado_cuota_sueldo"] = aug["ingresos_cuota"] - aug["sueldos_personal"]
+        aug["datos_completos"] = aug["ingresos_cuota"].notna() & aug["sueldos_personal"].notna()
+
+        completos = aug[aug["datos_completos"]].copy()
+        ingresos_total = float(completos["ingresos_cuota"].sum()) if not completos.empty else 0.0
+        sueldos_total = float(completos["sueldos_personal"].sum()) if not completos.empty else 0.0
+        resultado_total = ingresos_total - sueldos_total
+        positivos = int((completos["resultado_cuota_sueldo"] >= 0).sum()) if not completos.empty else 0
+        cargados = int(len(completos))
+        pendientes = int(len(aug) - cargados)
+
+        c1,c2,c3,c4,c5 = st.columns(5)
+        with c1:
+            card("Ingresos cuotas deportivas", ars(ingresos_total), "Agosto 2026")
+        with c2:
+            card("Sueldos personal deportivo", ars(sueldos_total), "Agosto 2026")
+        with c3:
+            estado = "🟢 Superávit" if resultado_total >= 0 else "🔴 Déficit"
+            css = "status-green" if resultado_total >= 0 else "status-red"
+            card("Resultado cuota - sueldo", ars(resultado_total), "Agosto 2026", estado, css)
+        with c4:
+            card("Deportes con cobertura", f"{positivos} de {cargados}" if cargados else "—",
+                 "Cuota ≥ sueldo")
+        with c5:
+            card("Pendientes de carga", str(pendientes), "Sin ambos importes reales")
+
+        if not completos.empty:
+            section("COMPARACIÓN POR DEPORTE · AGOSTO 2026")
+            c1,c2 = st.columns([1.55,1])
+
+            with c1:
+                plot_df = completos.sort_values("ingresos_cuota", ascending=False).copy()
+                fig = go.Figure()
+                fig.add_trace(go.Bar(
+                    x=plot_df["deporte"],
+                    y=plot_df["ingresos_cuota"]/1e6,
+                    name="Ingresos por cuota",
+                    marker_color="#F28C28"
+                ))
+                fig.add_trace(go.Bar(
+                    x=plot_df["deporte"],
+                    y=plot_df["sueldos_personal"]/1e6,
+                    name="Sueldos personal",
+                    marker_color="#1E5A8A"
+                ))
+                fig.update_layout(
+                    barmode="group",
+                    title="Ingresos por cuota vs sueldos asignados",
+                    yaxis_title="$ millones",
+                    xaxis_title="",
+                    height=430,
+                    legend_orientation="h"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            with c2:
+                pie = pd.DataFrame({
+                    "Concepto":["Ingresos cuotas","Sueldos personal"],
+                    "Monto":[ingresos_total,sueldos_total]
+                })
+                fig2 = px.pie(
+                    pie,
+                    values="Monto",
+                    names="Concepto",
+                    hole=.58,
+                    title="Composición Agosto 2026",
+                    color="Concepto",
+                    color_discrete_map={
+                        "Ingresos cuotas":"#F28C28",
+                        "Sueldos personal":"#1E5A8A"
+                    }
+                )
+                fig2.update_layout(height=430)
+                st.plotly_chart(fig2, use_container_width=True)
+
+            detalle = completos[[
+                "deporte","ingresos_cuota","sueldos_personal","resultado_cuota_sueldo",
+                "observaciones","fuente","actualizado_en"
+            ]].copy()
+            detalle["cobertura_sueldo_pct"] = np.where(
+                detalle["sueldos_personal"]>0,
+                detalle["ingresos_cuota"]/detalle["sueldos_personal"]*100,
+                np.nan
+            )
+            detalle["estado"] = np.where(
+                detalle["resultado_cuota_sueldo"]>=0,
+                "🟢 Cubre sueldo",
+                "🔴 No cubre sueldo"
+            )
+
+            section("DETALLE COMPLETO · AGOSTO 2026")
+            st.dataframe(
+                detalle,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "deporte":"Deporte",
+                    "ingresos_cuota":st.column_config.NumberColumn("Ingresos cuota",format="$ %.0f"),
+                    "sueldos_personal":st.column_config.NumberColumn("Sueldos personal",format="$ %.0f"),
+                    "resultado_cuota_sueldo":st.column_config.NumberColumn("Resultado",format="$ %.0f"),
+                    "cobertura_sueldo_pct":st.column_config.NumberColumn("Cobertura sueldo %",format="%.1f %%"),
+                    "observaciones":"Observaciones",
+                    "fuente":"Fuente",
+                    "actualizado_en":"Actualizado",
+                    "estado":"Estado"
+                }
+            )
+
+        section("CARGA / EDICIÓN DE DATOS REALES · SOLO AGOSTO 2026")
+        st.caption(
+            "Puede completar o corregir los importes directamente. "
+            "Deje la celda vacía cuando todavía no exista un dato confirmado."
+        )
+
+        editor = aug[["deporte","ingresos_cuota","sueldos_personal","observaciones"]].copy()
+        edited = st.data_editor(
+            editor,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="dynamic",
+            key="editor_deportes_agosto_2026",
+            column_config={
+                "deporte":st.column_config.TextColumn("Deporte",required=True),
+                "ingresos_cuota":st.column_config.NumberColumn("Ingreso cuota Agosto",format="$ %.0f",min_value=0.0),
+                "sueldos_personal":st.column_config.NumberColumn("Sueldo personal Agosto",format="$ %.0f",min_value=0.0),
+                "observaciones":st.column_config.TextColumn("Observaciones")
+            }
+        )
+
+        if st.button("Guardar datos de Agosto 2026", type="primary", use_container_width=True):
+            guardados=0
+            for _,r in edited.iterrows():
+                dep=str(r.get("deporte","") or "").strip()
+                if not dep:
+                    continue
+                ing = None if pd.isna(r.get("ingresos_cuota")) else float(r.get("ingresos_cuota"))
+                sue = None if pd.isna(r.get("sueldos_personal")) else float(r.get("sueldos_personal"))
+                obs = str(r.get("observaciones","") or "")
+                execute("""INSERT INTO sports_aug_2026
+                (deporte,ingresos_cuota,sueldos_personal,observaciones,fuente,actualizado_en)
+                VALUES(?,?,?,?,?,CURRENT_TIMESTAMP)
+                ON CONFLICT(deporte) DO UPDATE SET
+                    ingresos_cuota=excluded.ingresos_cuota,
+                    sueldos_personal=excluded.sueldos_personal,
+                    observaciones=excluded.observaciones,
+                    fuente='Manual',
+                    actualizado_en=CURRENT_TIMESTAMP""",
+                    (dep,ing,sue,obs,"Manual"))
+                execute("INSERT OR IGNORE INTO sports_master(deporte,origen) VALUES(?,?)",
+                        (dep,"Agosto 2026"))
+                guardados += 1
+            st.success(f"{guardados} deportes guardados para Agosto 2026.")
+            st.rerun()
+
+        if pendientes > 0:
+            pendientes_df = aug[~aug["datos_completos"]][
+                ["deporte","ingresos_cuota","sueldos_personal","observaciones"]
+            ]
+            with st.expander(f"Ver {pendientes} deportes pendientes de completar", expanded=False):
+                st.dataframe(
+                    pendientes_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "ingresos_cuota":st.column_config.NumberColumn("Ingreso cuota",format="$ %.0f"),
+                        "sueldos_personal":st.column_config.NumberColumn("Sueldo personal",format="$ %.0f")
+                    }
+                )
 
 elif menu=="Movimientos / desvíos":
     section("MOVIMIENTOS RELEVANTES")
@@ -1037,7 +1201,8 @@ else:
         "capitania":fetch_df("SELECT * FROM capitania ORDER BY fecha"),
         "capitania_identificada":fetch_df("SELECT * FROM capitania_identificada ORDER BY fecha"),
         "maestro_deportes":fetch_df("SELECT * FROM sports_master ORDER BY deporte"),
-        "deportes":fetch_df("SELECT * FROM sports ORDER BY fecha,deporte"),
+        "deportes_historico_referencia":fetch_df("SELECT * FROM sports ORDER BY fecha,deporte"),
+        "deportes_agosto_2026":fetch_df("SELECT * FROM sports_aug_2026 ORDER BY deporte"),
         "cuentas":fetch_df("SELECT * FROM accounts ORDER BY fecha,moneda,cuenta"),
         "movimientos":fetch_df("SELECT * FROM events ORDER BY fecha,id"),
     }
